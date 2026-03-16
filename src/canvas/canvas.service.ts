@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Canvas } from './entities/canvas.entity';
@@ -26,5 +26,13 @@ export class CanvasService {
     });
 
     return await this.canvasRepository.save(canvas);
+  }
+
+  async findOne(canvasId: number): Promise<Canvas> {
+    const canvas = await this.canvasRepository.findOneBy({ canvasId });
+    if (!canvas) {
+      throw new NotFoundException(`캔버스(ID: ${canvasId})를 찾을 수 없습니다.`);
+    }
+    return canvas;
   }
 }

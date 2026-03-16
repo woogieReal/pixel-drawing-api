@@ -46,4 +46,30 @@ describe('CanvasController (e2e)', () => {
       expect(response.body.pixelData.data[0]).toBe(255);
     }
   });
+
+  it('/canvas/:id (GET) - 특정 ID의 캔버스를 조회해야 함', async () => {
+    // 1. 먼저 테스트용 캔버스 생성
+    const createResponse = await request(app.getHttpServer())
+      .post('/canvas')
+      .send({ width: 5, height: 5 })
+      .expect(201);
+
+    const canvasId = createResponse.body.canvasId;
+
+    // 2. 생성된 ID로 조회
+    const getResponse = await request(app.getHttpServer())
+      .get(`/canvas/${canvasId}`)
+      .expect(200);
+
+    expect(getResponse.body.canvasId).toBe(canvasId);
+    expect(getResponse.body.width).toBe(5);
+    expect(getResponse.body.height).toBe(5);
+    expect(typeof getResponse.body.pixelData).toBe('string'); // Controller에서 Base64 변환됨
+  });
+
+  it('/canvas/:id (GET) - 존재하지 않는 ID 조회 시 404를 반환해야 함', async () => {
+    await request(app.getHttpServer())
+      .get('/canvas/999999')
+      .expect(404);
+  });
 });

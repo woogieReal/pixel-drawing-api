@@ -6,7 +6,7 @@ import { AppModule } from './../src/app.module';
 describe('CanvasController (e2e)', () => {
   let app: INestApplication;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -21,7 +21,14 @@ describe('CanvasController (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      // 데이터베이스 연결을 명시적으로 닫아 프로세스가 남는 것을 방지합니다.
+      const dataSource = app.get(require('typeorm').DataSource);
+      if (dataSource && dataSource.isInitialized) {
+        await dataSource.destroy();
+      }
+      await app.close();
+    }
   });
 
   it('/canvas (POST) - 새로운 빈 캔버스를 생성해야 함', async () => {

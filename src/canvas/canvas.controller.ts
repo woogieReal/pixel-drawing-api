@@ -8,6 +8,10 @@ export class CanvasController {
 
   @Post()
   async create(@Body() createCanvasDto: CreateCanvasDto) {
-    return await this.canvasService.create(createCanvasDto);
+    const canvas = await this.canvasService.create(createCanvasDto);
+    return {
+      ...canvas,
+      pixelData: canvas.pixelData.toString('base64'),
+    };
   }
 }

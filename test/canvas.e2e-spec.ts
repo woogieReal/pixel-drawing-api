@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from './../src/app.module';
 
@@ -12,6 +12,11 @@ describe('CanvasController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }));
     await app.init();
   });
 
@@ -45,6 +50,14 @@ describe('CanvasController (e2e)', () => {
       expect(response.body.pixelData.data.length).toBe(width * height * 3);
       expect(response.body.pixelData.data[0]).toBe(255);
     }
+  });
+
+
+  it('/canvas (POST) - 256을 초과하는 크기로 생성 시 400 에러를 반환해야 함', async () => {
+    await request(app.getHttpServer())
+      .post('/canvas')
+      .send({ width: 257, height: 256 })
+      .expect(400);
   });
 
   it('/canvas/:id (GET) - 특정 ID의 캔버스를 조회해야 함', async () => {

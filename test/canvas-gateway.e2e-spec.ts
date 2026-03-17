@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { io, Socket } from 'socket.io-client';
 import { AppModule } from './../src/app.module';
+import { CanvasService } from './../src/canvas/canvas.service';
 
 describe('CanvasGateway (e2e)', () => {
   let app: INestApplication;
@@ -68,8 +69,8 @@ describe('CanvasGateway (e2e)', () => {
     });
 
     afterEach(() => {
-      clientSocket1.disconnect();
-      clientSocket2.disconnect();
+      if (clientSocket1) clientSocket1.disconnect();
+      if (clientSocket2) clientSocket2.disconnect();
     });
 
     it('client1이 바이너리 패킷으로 픽셀을 업데이트하면, client2가 브로드캐스트를 받아야 함 (DB 갱신 포함)', (done) => {
@@ -98,6 +99,10 @@ describe('CanvasGateway (e2e)', () => {
         expect(receivedBuffer.readUInt8(2)).toBe(r);
         expect(receivedBuffer.readUInt8(3)).toBe(g);
         expect(receivedBuffer.readUInt8(4)).toBe(b);
+
+        // 버퍼링 방식이므로 DB 조회 전 명시적으로 flush 호출
+        const canvasService = app.get(CanvasService);
+        await canvasService.flushToDatabase();
 
         // 실제 DB에 반영되었는지 REST API로 검증
         const getResponse = await request(serverHttpServer)

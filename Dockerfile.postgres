@@ -1,0 +1,9 @@
+FROM postgres:16-alpine
+
+# (Optional) Add initialization scripts
+# COPY ./init.sql /docker-entrypoint-initdb.d/
+
+# Set environment variables (can also be set in docker-compose)
+# ENV POSTGRES_USER=admin
+# ENV POSTGRES_PASSWORD=admin_password
+# ENV POSTGRES_DB=pixel_drawing_db

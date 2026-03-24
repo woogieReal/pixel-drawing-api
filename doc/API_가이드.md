@@ -1,6 +1,6 @@
 # Pixel Drawing API — 프론트엔드 연동 가이드
 
-> 기준 서버 주소: `http://localhost:3000` (배포 환경에 따라 변경)
+> 기준 서버 주소: `http://localhost:3100` (배포 환경에 따라 변경)
 
 ---
 
@@ -26,7 +26,7 @@
 
 | 항목 | 내용 |
 |------|------|
-| 기본 포트 | `3000` |
+| 기본 포트 | `3100` |
 | Content-Type | `application/json` |
 | 요청 유효성 검사 | 누락되거나 허용되지 않은 필드 포함 시 `400 Bad Request` 반환 |
 | WebSocket 라이브러리 | `socket.io-client` (Socket.IO 프로토콜) |
@@ -178,7 +178,7 @@ npm install socket.io-client
 ```javascript
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:3000/canvas', {
+const socket = io('http://localhost:3100/canvas', {
   query: { canvasId: '1' },   // 필수: 입장할 캔버스 ID (문자열)
   transports: ['websocket'],
 });
@@ -269,7 +269,7 @@ socket.on('error', (message) => {
 
 ```javascript
 async function loadCanvas(canvasId) {
-  const res = await fetch(`http://localhost:3000/canvas/${canvasId}`);
+  const res = await fetch(`http://localhost:3100/canvas/${canvasId}`);
   const { width, height, pixelData } = await res.json();
 
   // Base64 → Uint8Array 변환

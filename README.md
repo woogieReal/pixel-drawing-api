@@ -30,6 +30,9 @@ DB_DATABASE=pixel_drawing_db
 
 # Host port for PostgreSQL (Docker)
 POSTGRES_PORT=5432
+
+# App Port
+PORT=3100
 ```
 
 ### 3. 데이터베이스(PostgreSQL) 실행
@@ -49,8 +52,14 @@ docker-compose up -d
 npm run start:dev
 
 # 실행 확인
-# http://localhost:3000
+# http://localhost:3100
 ```
+
+## 📖 API 문서
+
+상세한 API 명세 및 프론트엔드 연동 방법은 아래 문서를 참고하세요.
+
+- [**API 가이드 (REST & WebSocket)**](./doc/API_가이드.md)
 
 ## 🐳 Docker 상세 정보
 

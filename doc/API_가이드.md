@@ -11,11 +11,13 @@
    - [캔버스 생성 — POST /canvas](#21-캔버스-생성--post-canvas)
    - [캔버스 목록 조회 — GET /canvas](#22-캔버스-목록-조회--get-canvas)
    - [캔버스 단건 조회 — GET /canvas/:id](#23-캔버스-단건-조회--get-canvasid)
+   - [캔버스 확장 — PATCH /canvas/:id/resize](#24-캔버스-확장--patch-canvasidresize)
 3. [WebSocket API](#3-websocket-api)
    - [연결](#31-연결)
    - [픽셀 그리기 — draw 이벤트](#32-픽셀-그리기--draw-이벤트)
    - [픽셀 수신 — pixelUpdated 이벤트](#33-픽셀-수신--pixelupdated-이벤트)
    - [에러 수신 — error 이벤트](#34-에러-수신--error-이벤트)
+   - [캔버스 크기 변경 수신 — canvasResized 이벤트](#35-캔버스-크기-변경-수신--canvasresized-이벤트)
 4. [픽셀 데이터 해석 방법](#4-픽셀-데이터-해석-방법)
 5. [전체 연동 흐름 예시](#5-전체-연동-흐름-예시)
 6. [특이사항 및 주의사항](#6-특이사항-및-주의사항)
@@ -163,6 +165,49 @@ GET /canvas/1
 | `404` | 해당 ID의 캔버스가 존재하지 않음 |
 | `400` | ID가 정수가 아닌 경우 |
 
+
+---
+
+### 2.4 캔버스 확장 — `PATCH /canvas/:id/resize`
+
+특정 캔버스의 크기를 지정된 방향으로 확장합니다. 확장된 영역은 흰색(RGB: 255, 255, 255)으로 채워집니다.
+
+**Request**
+
+```http
+PATCH /canvas/1/resize
+Content-Type: application/json
+
+{
+  "direction": "up",
+  "amount": 10
+}
+```
+
+| 필드 | 타입 | 필수 | 제약 | 설명 |
+|------|------|------|------|------|
+| `direction` | `string` | ✅ | `up`, `down`, `left`, `right` | 확장할 방향 |
+| `amount` | `number` | ✅ | 1 ~ 50 정수 | 추가할 픽셀 행/열의 수 |
+
+**Response `200 OK`**
+
+```json
+{
+  "canvasId": 1,
+  "width": 64,
+  "height": 74,
+  "pixelData": "////....(Base64)",
+  "updatedAt": "2026-03-24T12:05:00.000Z"
+}
+```
+
+**Error**
+
+| 코드 | 발생 조건 |
+|------|----------|
+| `400` | 확장 후 크기가 256x256을 초과하는 경우, 유효하지 않은 방향, amount 범위 초과 |
+| `404` | 해당 ID의 캔버스가 존재하지 않음 |
+
 ---
 
 ## 3. WebSocket API
@@ -257,6 +302,29 @@ socket.on('error', (message) => {
 | `"canvasId is required to draw."` | `canvasId` 없이 연결 후 `draw` 이벤트 전송 |
 | `"Invalid packet structure. Expected 5-byte buffer via binary message."` | 5바이트가 아닌 패킷 전송 |
 | `"좌표가 캔버스 크기를 벗어났습니다."` | x/y가 캔버스 width/height를 초과 |
+| `"캔버스 크기는 최대 256x256 입니다."` | 확장 후 크기 제한 초과 |
+
+---
+
+### 3.5 캔버스 크기 변경 수신 — `canvasResized` 이벤트
+
+캔버스 크기가 변경(확장)되면 해당 룸의 **모든 클라이언트**(요청자 포함)에게 브로드캐스트됩니다.
+
+**Payload**
+
+```json
+{
+  "width": 64,
+  "height": 74,
+  "pixelData": "////....(신규 전체 Base64 데이터)"
+}
+```
+
+**클라이언트 대응 가이드**
+
+1.  이벤트를 수신하면 HTML Canvas의 `width`, `height` 속성을 즉시 업데이트합니다.
+2.  `pixelData`를 다시 디코딩하여 전체 화면을 재렌더링합니다.
+3.  기존 픽셀들의 상대적 위치가 변했을 수 있으므로(특히 `up`, `left` 확장 시), 이후 `draw` 이벤트 전송 시 변경된 규격에 맞춰 좌표를 계산해야 합니다.
 
 ---
 

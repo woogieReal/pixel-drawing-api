@@ -153,4 +153,73 @@ describe('CanvasController (e2e)', () => {
       .get('/canvas?page=1&limit=101')
       .expect(400);
   });
+
+  describe('PATCH /canvas/:id/resize', () => {
+    let canvasId: number;
+
+    beforeAll(async () => {
+      // Create a 5x5 canvas for resize tests
+      const res = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 5, height: 5 })
+        .expect(201);
+      canvasId = res.body.canvasId;
+    });
+
+    it('should successfully resize canvas to the right', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'right', amount: 3 })
+        .expect(200);
+
+      expect(res.body.canvasId).toBe(canvasId);
+      expect(res.body.width).toBe(8); // 5 + 3 = 8
+      expect(res.body.height).toBe(5);
+      expect(res.body.pixelData).toBeDefined();
+
+      const buffer = Buffer.from(res.body.pixelData, 'base64');
+      expect(buffer.length).toBe(8 * 5 * 3); // 120 bytes
+    });
+
+    it('should successfully resize canvas down', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'down', amount: 2 })
+        .expect(200);
+
+      expect(res.body.width).toBe(8);
+      expect(res.body.height).toBe(7); // 5 + 2 = 7
+      
+      const buffer = Buffer.from(res.body.pixelData, 'base64');
+      expect(buffer.length).toBe(8 * 7 * 3);
+    });
+
+    it('should return 400 when amount exceeds maximum limit', async () => {
+      await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'right', amount: 51 }) // Max is 50
+        .expect(400);
+    });
+
+    it('should return 400 when total size exceeds 256x256', async () => {
+      // First create a 250x250 canvas
+      const largeCanvasRes = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 250, height: 250 })
+        .expect(201);
+      const largeCanvasId = largeCanvasRes.body.canvasId;
+
+      await request(app.getHttpServer())
+        .patch(`/canvas/${largeCanvasId}/resize`)
+        .send({ direction: 'up', amount: 10 }) // 250 + 10 = 260 (>256)
+        .expect(400);
+    });
+
+    it('should return 400 for invalid direction', async () => {
+      await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'diagonal', amount: 5 })
+        .expect(400);
+    });
+  });
 });

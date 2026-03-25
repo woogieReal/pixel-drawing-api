@@ -64,4 +64,15 @@ export class CanvasGateway implements OnGatewayConnection {
       console.error('Draw event error:', error);
     }
   }
+
+  /**
+   * 캔버스 크기가 변경되었을 때 전체 클라이언트에게 새 규격을 브로드캐스트합니다.
+   */
+  broadcastResize(canvasId: number, width: number, height: number, pixelData: string) {
+    this.server.to(`canvas_${canvasId}`).emit('canvasResized', {
+      width,
+      height,
+      pixelData,
+    });
+  }
 }

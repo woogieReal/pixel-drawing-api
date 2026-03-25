@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit, OnModuleDestroy, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Canvas } from './entities/canvas.entity';
 import { CreateCanvasDto } from './dto/create-canvas.dto';
+import { ResizeCanvasDto } from './dto/resize-canvas.dto';
 
 @Injectable()
 export class CanvasService implements OnModuleInit, OnModuleDestroy {
@@ -46,12 +47,76 @@ export class CanvasService implements OnModuleInit, OnModuleDestroy {
     return await this.canvasRepository.save(canvas);
   }
 
+  async findAll(page: number, limit: number) {
+    const [items, total] = await this.canvasRepository.findAndCount({
+      select: ['canvasId', 'width', 'height', 'updatedAt'],
+      order: { canvasId: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   async findOne(canvasId: number): Promise<Canvas> {
     const canvas = await this.canvasRepository.findOneBy({ canvasId });
     if (!canvas) {
       throw new NotFoundException(`캔버스(ID: ${canvasId})를 찾을 수 없습니다.`);
     }
     return canvas;
+  }
+
+  async resizeCanvas(canvasId: number, dto: ResizeCanvasDto): Promise<Canvas> {
+    const { direction, amount } = dto;
+    const canvas = await this.findOne(canvasId);
+
+    let newWidth = canvas.width;
+    let newHeight = canvas.height;
+
+    if (direction === 'up' || direction === 'down') {
+      newHeight += amount;
+    } else if (direction === 'left' || direction === 'right') {
+      newWidth += amount;
+    }
+
+    if (newWidth > 256 || newHeight > 256) {
+      throw new BadRequestException(`캔버스 크기는 최대 256x256 입니다. (요청: ${newWidth}x${newHeight})`);
+    }
+
+    const newBufferSize = newWidth * newHeight * 3;
+    const newPixelData = Buffer.alloc(newBufferSize, 255);
+
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        let destX = x;
+        let destY = y;
+
+        if (direction === 'left') destX += amount;
+        if (direction === 'up') destY += amount;
+
+        const srcOffset = (y * canvas.width + x) * 3;
+        const destOffset = (destY * newWidth + destX) * 3;
+
+        canvas.pixelData.copy(newPixelData, destOffset, srcOffset, srcOffset + 3);
+      }
+    }
+
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+    canvas.pixelData = newPixelData;
+
+    const savedCanvas = await this.canvasRepository.save(canvas);
+
+    if (this.canvasCache.has(canvasId)) {
+      this.canvasCache.set(canvasId, savedCanvas);
+    }
+
+    return savedCanvas;
   }
 
   /**

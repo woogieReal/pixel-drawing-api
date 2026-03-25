@@ -92,4 +92,134 @@ describe('CanvasController (e2e)', () => {
       .get('/canvas/999999')
       .expect(404);
   });
+
+  it('/canvas (GET) - 캔버스 목록을 페이지네이션으로 조회해야 함', async () => {
+    // 1. 테스트용 캔버스 5개 생성
+    for (let i = 0; i < 5; i++) {
+      await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: i + 2, height: i + 2 })
+        .expect(201);
+    }
+
+    // 2. 첫 페이지 조회 (limit=3)
+    const response = await request(app.getHttpServer())
+      .get('/canvas?page=1&limit=3')
+      .expect(200);
+
+    expect(response.body).toHaveProperty('items');
+    expect(response.body).toHaveProperty('total');
+    expect(response.body).toHaveProperty('page', 1);
+    expect(response.body).toHaveProperty('limit', 3);
+    expect(response.body).toHaveProperty('totalPages');
+
+    expect(Array.isArray(response.body.items)).toBe(true);
+    expect(response.body.items.length).toBe(3);
+    expect(response.body.total).toBeGreaterThanOrEqual(5);
+    expect(response.body.totalPages).toBe(Math.ceil(response.body.total / 3));
+
+    // 3. 각 항목에 pixelData 없고 필수 필드 있어야 함
+    const item = response.body.items[0];
+    expect(item).toHaveProperty('canvasId');
+    expect(item).toHaveProperty('width');
+    expect(item).toHaveProperty('height');
+    expect(item).toHaveProperty('updatedAt');
+    expect(item).not.toHaveProperty('pixelData');
+
+    // 4. canvasId 오름차순 정렬 확인
+    for (let i = 1; i < response.body.items.length; i++) {
+      expect(response.body.items[i].canvasId).toBeGreaterThanOrEqual(response.body.items[i - 1].canvasId);
+    }
+  });
+
+  it('/canvas (GET) - 두 번째 페이지를 조회하면 다른 항목이 반환돼야 함', async () => {
+    const page1 = await request(app.getHttpServer())
+      .get('/canvas?page=1&limit=2')
+      .expect(200);
+
+    const page2 = await request(app.getHttpServer())
+      .get('/canvas?page=2&limit=2')
+      .expect(200);
+
+    // 두 페이지의 canvasId가 겹치지 않아야 함
+    const ids1 = page1.body.items.map((i: any) => i.canvasId);
+    const ids2 = page2.body.items.map((i: any) => i.canvasId);
+    expect(ids1.some((id: number) => ids2.includes(id))).toBe(false);
+    expect(page2.body.page).toBe(2);
+  });
+
+  it('/canvas (GET) - limit이 100을 초과하면 400을 반환해야 함', async () => {
+    await request(app.getHttpServer())
+      .get('/canvas?page=1&limit=101')
+      .expect(400);
+  });
+
+  describe('PATCH /canvas/:id/resize', () => {
+    let canvasId: number;
+
+    beforeAll(async () => {
+      // Create a 5x5 canvas for resize tests
+      const res = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 5, height: 5 })
+        .expect(201);
+      canvasId = res.body.canvasId;
+    });
+
+    it('should successfully resize canvas to the right', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'right', amount: 3 })
+        .expect(200);
+
+      expect(res.body.canvasId).toBe(canvasId);
+      expect(res.body.width).toBe(8); // 5 + 3 = 8
+      expect(res.body.height).toBe(5);
+      expect(res.body.pixelData).toBeDefined();
+
+      const buffer = Buffer.from(res.body.pixelData, 'base64');
+      expect(buffer.length).toBe(8 * 5 * 3); // 120 bytes
+    });
+
+    it('should successfully resize canvas down', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'down', amount: 2 })
+        .expect(200);
+
+      expect(res.body.width).toBe(8);
+      expect(res.body.height).toBe(7); // 5 + 2 = 7
+      
+      const buffer = Buffer.from(res.body.pixelData, 'base64');
+      expect(buffer.length).toBe(8 * 7 * 3);
+    });
+
+    it('should return 400 when amount exceeds maximum limit', async () => {
+      await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'right', amount: 51 }) // Max is 50
+        .expect(400);
+    });
+
+    it('should return 400 when total size exceeds 256x256', async () => {
+      // First create a 250x250 canvas
+      const largeCanvasRes = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 250, height: 250 })
+        .expect(201);
+      const largeCanvasId = largeCanvasRes.body.canvasId;
+
+      await request(app.getHttpServer())
+        .patch(`/canvas/${largeCanvasId}/resize`)
+        .send({ direction: 'up', amount: 10 }) // 250 + 10 = 260 (>256)
+        .expect(400);
+    });
+
+    it('should return 400 for invalid direction', async () => {
+      await request(app.getHttpServer())
+        .patch(`/canvas/${canvasId}/resize`)
+        .send({ direction: 'diagonal', amount: 5 })
+        .expect(400);
+    });
+  });
 });

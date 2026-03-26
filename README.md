@@ -8,52 +8,10 @@ Pixel Drawing 프로젝트를 위한 백엔드 API 서버입니다. NestJS와 Po
 - [Docker](https://www.docker.com/) 및 [Docker Compose](https://docs.docker.com/compose/)
 - [npm](https://www.npmjs.com/)
 
-## 🚀 프로젝트 시작하기
+## 🚀 프로젝트 실행 방법
 
-### 1. 의존성 설치
-
-```bash
-npm install
-```
-
-### 2. 환경 변수 설정
-
-프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 아래 내용을 설정합니다 (이미 설치 도구로 생성되어 있을 수 있습니다).
-
-```env
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=admin
-DB_PASSWORD=admin_password
-DB_DATABASE=pixel_drawing_db
-
-# Host port for PostgreSQL (Docker)
-POSTGRES_PORT=5432
-
-# App Port
-PORT=3100
-```
-
-### 3. 데이터베이스(PostgreSQL) 실행
-
-Docker Compose를 사용하여 PostgreSQL 컨테이너를 백그라운드에서 실행합니다.
-
-```bash
-docker-compose up -d
-```
-
-> **참고**: 터미널 환경에 따라 `docker compose up -d` 명령어를 사용해야 할 수도 있습니다.
-
-### 4. 애플리케이션 실행
-
-```bash
-# 개발 모드 (Watch mode)
-npm run start:dev
-
-# 실행 확인
-# http://localhost:3100
-```
+본 프로젝트는 상위 `pixel-drawing-app` 루트 디렉토리에서 `docker-compose`를 통하여 프론트엔드 프로젝트와 함께 통합 실행하는 것을 권장합니다.
+상세한 실행 방법은 [루트 디렉토리의 README.md](../README.md)를 참고해 주세요.
 
 ## 📖 API 문서
 

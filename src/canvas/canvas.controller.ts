@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, ParseIntPipe, Query, Patch } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, ParseIntPipe, Query, Patch, Delete, HttpCode, HttpStatus } from '@nestjs/common';
 import { CanvasService } from './canvas.service';
 import { CreateCanvasDto } from './dto/create-canvas.dto';
 import { PaginateCanvasDto } from './dto/paginate-canvas.dto';
@@ -39,6 +39,13 @@ export class CanvasController {
       pixelData: canvas.pixelData.toString('base64'),
       updatedAt: canvas.updatedAt,
     };
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(@Param('id', ParseIntPipe) id: number) {
+    await this.canvasService.remove(id);
+    this.canvasGateway.broadcastDelete(id);
   }
 
   @Patch(':id/resize')

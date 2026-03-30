@@ -154,6 +154,20 @@ export class CanvasService implements OnModuleInit, OnModuleDestroy {
     return canvas;
   }
 
+  async remove(canvasId: number): Promise<void> {
+    const canvas = await this.canvasRepository.findOneBy({ canvasId });
+    if (!canvas) {
+      throw new NotFoundException(`캔버스(ID: ${canvasId})를 찾을 수 없습니다.`);
+    }
+
+    // 캐시 및 dirty set에서 제거 (삭제된 캔버스가 flush되는 것 방지)
+    this.canvasCache.delete(canvasId);
+    this.dirtyCanvasIds.delete(canvasId);
+    this.dirtyThumbnailIds.delete(canvasId);
+
+    await this.canvasRepository.delete(canvasId);
+  }
+
   async resizeCanvas(canvasId: number, dto: ResizeCanvasDto): Promise<Canvas> {
     const { direction, amount } = dto;
     const canvas = await this.findOne(canvasId);

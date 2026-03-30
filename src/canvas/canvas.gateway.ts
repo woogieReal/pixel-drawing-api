@@ -106,4 +106,11 @@ export class CanvasGateway implements OnGatewayConnection, OnGatewayDisconnect {
       pixelData,
     });
   }
+
+  /**
+   * 캔버스가 삭제되었을 때 해당 룸의 모든 클라이언트에게 알립니다.
+   */
+  broadcastDelete(canvasId: number) {
+    this.server.to(`canvas_${canvasId}`).emit('canvasDeleted', { canvasId });
+  }
 }

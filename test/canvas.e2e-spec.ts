@@ -178,6 +178,64 @@ describe('CanvasController (e2e)', () => {
       .expect(400);
   });
 
+  describe('DELETE /canvas/:id', () => {
+    it('존재하는 캔버스를 삭제하면 204를 반환해야 함', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 8, height: 8 })
+        .expect(201);
+
+      const canvasId = createRes.body.canvasId;
+
+      await request(app.getHttpServer())
+        .delete(`/canvas/${canvasId}`)
+        .expect(204);
+    });
+
+    it('삭제된 캔버스를 조회하면 404를 반환해야 함', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 8, height: 8 })
+        .expect(201);
+
+      const canvasId = createRes.body.canvasId;
+
+      await request(app.getHttpServer())
+        .delete(`/canvas/${canvasId}`)
+        .expect(204);
+
+      await request(app.getHttpServer())
+        .get(`/canvas/${canvasId}`)
+        .expect(404);
+    });
+
+    it('존재하지 않는 캔버스 삭제 시 404를 반환해야 함', async () => {
+      await request(app.getHttpServer())
+        .delete('/canvas/999999')
+        .expect(404);
+    });
+
+    it('삭제된 캔버스는 목록에 포함되지 않아야 함', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 8, height: 8 })
+        .expect(201);
+
+      const canvasId = createRes.body.canvasId;
+
+      await request(app.getHttpServer())
+        .delete(`/canvas/${canvasId}`)
+        .expect(204);
+
+      const listRes = await request(app.getHttpServer())
+        .get('/canvas?page=1&limit=100')
+        .expect(200);
+
+      const found = listRes.body.items.find((i: any) => i.canvasId === canvasId);
+      expect(found).toBeUndefined();
+    });
+  });
+
   describe('PATCH /canvas/:id/resize', () => {
     let canvasId: number;
 

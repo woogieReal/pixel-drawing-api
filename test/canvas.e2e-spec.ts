@@ -22,7 +22,6 @@ describe('CanvasController (e2e)', () => {
 
   afterAll(async () => {
     if (app) {
-      // 데이터베이스 연결을 명시적으로 닫아 프로세스가 남는 것을 방지합니다.
       const dataSource = app.get(require('typeorm').DataSource);
       if (dataSource && dataSource.isInitialized) {
         await dataSource.destroy();
@@ -44,21 +43,15 @@ describe('CanvasController (e2e)', () => {
     expect(response.body.height).toBe(height);
     expect(response.body.pixelData).toBeDefined();
 
-    // PostgreSQL의 BYTEA 데이터는 JSON 응답 시 기본적으로 Base64 문자열이나 데이터 배열 객체로 반환됩니다.
-    // 데이터가 존재하고 크기가 올바른지 확인합니다.
-    // 10x10 RGB의 경우 10 * 10 * 3 = 300바이트여야 합니다.
-    if (typeof response.body.pixelData === 'string') {
-      // Base64로 인코딩된 문자열인 경우
-      const buffer = Buffer.from(response.body.pixelData, 'base64');
-      expect(buffer.length).toBe(width * height * 3);
-      expect(buffer[0]).toBe(255); // 흰색이어야 함
-    } else if (response.body.pixelData.type === 'Buffer' || Array.isArray(response.body.pixelData.data)) {
-      // { type: 'Buffer', data: [...] } 형태의 객체로 반환된 경우
-      expect(response.body.pixelData.data.length).toBe(width * height * 3);
-      expect(response.body.pixelData.data[0]).toBe(255);
-    }
-  });
+    // 응답에 thumbnail은 포함되지 않음 (편집 화면 진입용 응답이므로 불필요)
+    expect(response.body).not.toHaveProperty('thumbnail');
 
+    // pixelData는 Base64 문자열이어야 함
+    expect(typeof response.body.pixelData).toBe('string');
+    const buffer = Buffer.from(response.body.pixelData, 'base64');
+    expect(buffer.length).toBe(width * height * 3); // 10 * 10 * 3 = 300 bytes
+    expect(buffer[0]).toBe(255); // 흰색으로 초기화
+  });
 
   it('/canvas (POST) - 256을 초과하는 크기로 생성 시 400 에러를 반환해야 함', async () => {
     await request(app.getHttpServer())
@@ -85,6 +78,9 @@ describe('CanvasController (e2e)', () => {
     expect(getResponse.body.width).toBe(5);
     expect(getResponse.body.height).toBe(5);
     expect(typeof getResponse.body.pixelData).toBe('string'); // Controller에서 Base64 변환됨
+
+    // 상세 조회에도 thumbnail은 포함되지 않음 (편집 화면에선 pixelData 사용)
+    expect(getResponse.body).not.toHaveProperty('thumbnail');
   });
 
   it('/canvas/:id (GET) - 존재하지 않는 ID 조회 시 404를 반환해야 함', async () => {
@@ -118,7 +114,7 @@ describe('CanvasController (e2e)', () => {
     expect(response.body.total).toBeGreaterThanOrEqual(5);
     expect(response.body.totalPages).toBe(Math.ceil(response.body.total / 3));
 
-    // 3. 각 항목에 pixelData 없고 필수 필드 있어야 함
+    // 3. 각 항목 필드 검증
     const item = response.body.items[0];
     expect(item).toHaveProperty('canvasId');
     expect(item).toHaveProperty('width');
@@ -126,10 +122,38 @@ describe('CanvasController (e2e)', () => {
     expect(item).toHaveProperty('updatedAt');
     expect(item).not.toHaveProperty('pixelData');
 
+    // thumbnail 필드가 존재해야 함 (Base64 문자열 또는 null)
+    expect(item).toHaveProperty('thumbnail');
+    expect(item.thumbnail === null || typeof item.thumbnail === 'string').toBe(true);
+
     // 4. canvasId 오름차순 정렬 확인
     for (let i = 1; i < response.body.items.length; i++) {
       expect(response.body.items[i].canvasId).toBeGreaterThanOrEqual(response.body.items[i - 1].canvasId);
     }
+  });
+
+  it('/canvas (GET) - 새로 생성한 캔버스의 thumbnail이 유효한 Base64 RGB 데이터여야 함', async () => {
+    const width = 16;
+    const height = 8;
+    const createRes = await request(app.getHttpServer())
+      .post('/canvas')
+      .send({ width, height })
+      .expect(201);
+
+    const canvasId = createRes.body.canvasId;
+
+    const listRes = await request(app.getHttpServer())
+      .get(`/canvas?page=1&limit=100`)
+      .expect(200);
+
+    const item = listRes.body.items.find((i: any) => i.canvasId === canvasId);
+    expect(item).toBeDefined();
+    expect(typeof item.thumbnail).toBe('string');
+
+    // 16x8 은 둘 다 64 미만이므로 썸네일 크기 = 원본(16x8x3 = 384 bytes)
+    const thumbBuffer = Buffer.from(item.thumbnail, 'base64');
+    expect(thumbBuffer.length).toBe(width * height * 3);
+    expect(thumbBuffer[0]).toBe(255); // 흰색으로 초기화
   });
 
   it('/canvas (GET) - 두 번째 페이지를 조회하면 다른 항목이 반환돼야 함', async () => {
@@ -189,9 +213,43 @@ describe('CanvasController (e2e)', () => {
 
       expect(res.body.width).toBe(8);
       expect(res.body.height).toBe(7); // 5 + 2 = 7
-      
+
       const buffer = Buffer.from(res.body.pixelData, 'base64');
       expect(buffer.length).toBe(8 * 7 * 3);
+    });
+
+    it('리사이즈 후 목록에서 thumbnail이 새 크기로 갱신되어야 함', async () => {
+      // 캔버스를 크게 만들어 썸네일 다운샘플링이 발생하는 케이스
+      const largeRes = await request(app.getHttpServer())
+        .post('/canvas')
+        .send({ width: 128, height: 128 })
+        .expect(201);
+      const largeId = largeRes.body.canvasId;
+
+      // 썸네일 확인: 128x128 → 64x64 다운샘플
+      const listBefore = await request(app.getHttpServer())
+        .get(`/canvas?page=1&limit=100`)
+        .expect(200);
+      const itemBefore = listBefore.body.items.find((i: any) => i.canvasId === largeId);
+      expect(typeof itemBefore.thumbnail).toBe('string');
+      const thumbBefore = Buffer.from(itemBefore.thumbnail, 'base64');
+      expect(thumbBefore.length).toBe(64 * 64 * 3); // 다운샘플된 크기
+
+      // 리사이즈 후 썸네일 갱신 확인
+      await request(app.getHttpServer())
+        .patch(`/canvas/${largeId}/resize`)
+        .send({ direction: 'right', amount: 10 })
+        .expect(200);
+
+      const listAfter = await request(app.getHttpServer())
+        .get(`/canvas?page=1&limit=100`)
+        .expect(200);
+      const itemAfter = listAfter.body.items.find((i: any) => i.canvasId === largeId);
+      expect(typeof itemAfter.thumbnail).toBe('string');
+
+      // 138x128 → 여전히 64x64
+      const thumbAfter = Buffer.from(itemAfter.thumbnail, 'base64');
+      expect(thumbAfter.length).toBe(64 * 64 * 3);
     });
 
     it('should return 400 when amount exceeds maximum limit', async () => {
@@ -202,7 +260,6 @@ describe('CanvasController (e2e)', () => {
     });
 
     it('should return 400 when total size exceeds 256x256', async () => {
-      // First create a 250x250 canvas
       const largeCanvasRes = await request(app.getHttpServer())
         .post('/canvas')
         .send({ width: 250, height: 250 })

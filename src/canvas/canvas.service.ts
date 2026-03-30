@@ -5,11 +5,16 @@ import { Canvas } from './entities/canvas.entity';
 import { CreateCanvasDto } from './dto/create-canvas.dto';
 import { ResizeCanvasDto } from './dto/resize-canvas.dto';
 
+const THUMBNAIL_MAX_SIZE = 64;
+const THUMBNAIL_FLUSH_INTERVAL_MS = 30_000;
+
 @Injectable()
 export class CanvasService implements OnModuleInit, OnModuleDestroy {
   private readonly canvasCache = new Map<number, Canvas>();
   private readonly dirtyCanvasIds = new Set<number>();
+  private readonly dirtyThumbnailIds = new Set<number>();
   private flushTimer: NodeJS.Timeout;
+  private thumbnailTimer: NodeJS.Timeout;
 
   constructor(
     @InjectRepository(Canvas)
@@ -22,12 +27,81 @@ export class CanvasService implements OnModuleInit, OnModuleDestroy {
     if (this.flushTimer.unref) {
       this.flushTimer.unref();
     }
+
+    // 30초마다 dirty 캔버스들의 썸네일 갱신
+    this.thumbnailTimer = setInterval(() => this.flushThumbnails(), THUMBNAIL_FLUSH_INTERVAL_MS);
+    if (this.thumbnailTimer.unref) {
+      this.thumbnailTimer.unref();
+    }
   }
 
   async onModuleDestroy() {
     clearInterval(this.flushTimer);
+    clearInterval(this.thumbnailTimer);
     console.log('서버 종료 중... 남은 픽셀 데이터를 DB에 저장합니다.');
+    await this.flushThumbnails();
     await this.flushToDatabase();
+  }
+
+  /**
+   * pixelData(RGB)를 최대 64x64로 nearest-neighbor 다운샘플하여 썸네일 Buffer를 생성합니다.
+   * 64보다 작은 캔버스는 원본 크기 그대로 반환합니다.
+   */
+  private generateThumbnail(canvas: Canvas): Buffer {
+    const thumbW = Math.min(canvas.width, THUMBNAIL_MAX_SIZE);
+    const thumbH = Math.min(canvas.height, THUMBNAIL_MAX_SIZE);
+    const thumb = Buffer.alloc(thumbW * thumbH * 3);
+
+    for (let ty = 0; ty < thumbH; ty++) {
+      for (let tx = 0; tx < thumbW; tx++) {
+        const sx = Math.floor(tx * canvas.width / thumbW);
+        const sy = Math.floor(ty * canvas.height / thumbH);
+        const srcOffset = (sy * canvas.width + sx) * 3;
+        const dstOffset = (ty * thumbW + tx) * 3;
+        thumb[dstOffset]     = canvas.pixelData[srcOffset];
+        thumb[dstOffset + 1] = canvas.pixelData[srcOffset + 1];
+        thumb[dstOffset + 2] = canvas.pixelData[srcOffset + 2];
+      }
+    }
+
+    return thumb;
+  }
+
+  /**
+   * dirtyThumbnailIds에 쌓인 캔버스들의 썸네일을 재생성하고
+   * dirtyCanvasIds에 추가하여 다음 DB flush에서 저장되도록 합니다.
+   */
+  private async flushThumbnails() {
+    if (this.dirtyThumbnailIds.size === 0) return;
+
+    const ids = Array.from(this.dirtyThumbnailIds);
+    this.dirtyThumbnailIds.clear();
+
+    console.log(`[Thumbnail] ${ids.length}개의 캔버스 썸네일을 갱신합니다.`);
+
+    for (const canvasId of ids) {
+      const canvas = this.canvasCache.get(canvasId);
+      if (!canvas) continue;
+
+      canvas.thumbnail = this.generateThumbnail(canvas);
+      this.dirtyCanvasIds.add(canvasId); // 다음 1초 flush에서 DB에 저장
+    }
+  }
+
+  /**
+   * 마지막 유저가 캔버스 룸에서 나갈 때 즉시 썸네일을 갱신합니다.
+   */
+  async notifySessionEnd(canvasId: number): Promise<void> {
+    if (!this.dirtyThumbnailIds.has(canvasId)) return;
+
+    this.dirtyThumbnailIds.delete(canvasId);
+
+    const canvas = this.canvasCache.get(canvasId);
+    if (!canvas) return;
+
+    canvas.thumbnail = this.generateThumbnail(canvas);
+    this.dirtyCanvasIds.add(canvasId);
+    console.log(`[Thumbnail] 캔버스(ID: ${canvasId}) 세션 종료 - 썸네일 즉시 갱신`);
   }
 
   async create(createCanvasDto: CreateCanvasDto): Promise<Canvas> {
@@ -42,20 +116,29 @@ export class CanvasService implements OnModuleInit, OnModuleDestroy {
       width,
       height,
       pixelData,
+      thumbnail: null,
     });
 
-    return await this.canvasRepository.save(canvas);
+    const saved = await this.canvasRepository.save(canvas);
+    saved.thumbnail = this.generateThumbnail(saved);
+    return await this.canvasRepository.save(saved);
   }
 
   async findAll(page: number, limit: number) {
     const [items, total] = await this.canvasRepository.findAndCount({
-      select: ['canvasId', 'width', 'height', 'updatedAt'],
+      select: ['canvasId', 'width', 'height', 'updatedAt', 'thumbnail'],
       order: { canvasId: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
     });
     return {
-      items,
+      items: items.map(item => ({
+        canvasId: item.canvasId,
+        width: item.width,
+        height: item.height,
+        updatedAt: item.updatedAt,
+        thumbnail: item.thumbnail ? item.thumbnail.toString('base64') : null,
+      })),
       total,
       page,
       limit,
@@ -109,6 +192,7 @@ export class CanvasService implements OnModuleInit, OnModuleDestroy {
     canvas.width = newWidth;
     canvas.height = newHeight;
     canvas.pixelData = newPixelData;
+    canvas.thumbnail = this.generateThumbnail(canvas);
 
     const savedCanvas = await this.canvasRepository.save(canvas);
 
@@ -120,7 +204,7 @@ export class CanvasService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * WebSocket을 통해 전달받은 5바이트 픽셀 데이터(x, y, r, g, b)를 
+   * WebSocket을 통해 전달받은 5바이트 픽셀 데이터(x, y, r, g, b)를
    * 메모리 캐시에 먼저 업데이트하고, dirty 플래그를 표시합니다.
    * @param canvasId 업데이트할 캔버스 ID
    * @param data 5바이트 버퍼 (x, y, r, g, b)
@@ -158,6 +242,9 @@ export class CanvasService implements OnModuleInit, OnModuleDestroy {
 
     // 3. 변경 사항이 있음을 표시 (DB 저장은 flushTimer에서 처리)
     this.dirtyCanvasIds.add(canvasId);
+
+    // 4. 썸네일 갱신 대상으로 표시
+    this.dirtyThumbnailIds.add(canvasId);
   }
 
   /**

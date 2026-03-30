@@ -21,8 +21,11 @@ export class CanvasController {
   async create(@Body() createCanvasDto: CreateCanvasDto) {
     const canvas = await this.canvasService.create(createCanvasDto);
     return {
-      ...canvas,
+      canvasId: canvas.canvasId,
+      width: canvas.width,
+      height: canvas.height,
       pixelData: canvas.pixelData.toString('base64'),
+      updatedAt: canvas.updatedAt,
     };
   }
 
@@ -30,8 +33,11 @@ export class CanvasController {
   async findOne(@Param('id', ParseIntPipe) id: number) {
     const canvas = await this.canvasService.findOne(id);
     return {
-      ...canvas,
+      canvasId: canvas.canvasId,
+      width: canvas.width,
+      height: canvas.height,
       pixelData: canvas.pixelData.toString('base64'),
+      updatedAt: canvas.updatedAt,
     };
   }
 

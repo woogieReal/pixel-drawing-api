@@ -4,15 +4,19 @@ import {
   MessageBody,
   ConnectedSocket,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { CanvasService } from './canvas.service';
 
 @WebSocketGateway({ namespace: '/canvas', cors: true })
-export class CanvasGateway implements OnGatewayConnection {
+export class CanvasGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
+
+  // canvasId별 연결된 socketId Set을 직접 추적
+  private readonly roomClients = new Map<number, Set<string>>();
 
   constructor(private readonly canvasService: CanvasService) {}
 
@@ -20,13 +24,40 @@ export class CanvasGateway implements OnGatewayConnection {
    * 클라이언트가 연결될 때 쿼리 스트링에서 canvasId를 추출하여 해당 Room에 조인시킵니다.
    */
   handleConnection(client: Socket) {
-    const canvasId = client.handshake.query.canvasId;
-    if (canvasId && typeof canvasId === 'string') {
+    const canvasIdParam = client.handshake.query.canvasId;
+    if (canvasIdParam && typeof canvasIdParam === 'string') {
+      const canvasId = parseInt(canvasIdParam, 10);
       client.join(`canvas_${canvasId}`);
+
+      if (!this.roomClients.has(canvasId)) {
+        this.roomClients.set(canvasId, new Set());
+      }
+      this.roomClients.get(canvasId)!.add(client.id);
+
       console.log(`Client ${client.id} joined canvas room: canvas_${canvasId}`);
     } else {
       console.warn(`Client ${client.id} connected without canvasId.`);
-      // 원한다면 canvasId가 없을 때 연결을 끊을 수도 있습니다: client.disconnect();
+    }
+  }
+
+  /**
+   * 클라이언트가 연결을 끊을 때 호출됩니다.
+   * 해당 캔버스 룸에 남은 유저가 없으면 썸네일을 즉시 갱신합니다.
+   */
+  async handleDisconnect(client: Socket) {
+    const canvasIdParam = client.handshake.query.canvasId;
+    if (!canvasIdParam || typeof canvasIdParam !== 'string') return;
+
+    const canvasId = parseInt(canvasIdParam, 10);
+    const clients = this.roomClients.get(canvasId);
+    if (!clients) return;
+
+    clients.delete(client.id);
+    console.log(`Client ${client.id} left canvas room: canvas_${canvasId} (남은 유저: ${clients.size})`);
+
+    if (clients.size === 0) {
+      this.roomClients.delete(canvasId);
+      await this.canvasService.notifySessionEnd(canvasId);
     }
   }
 
@@ -46,7 +77,7 @@ export class CanvasGateway implements OnGatewayConnection {
     }
 
     const canvasId = parseInt(canvasIdParam, 10);
-    
+
     // 1. 유효성 검사
     if (!Buffer.isBuffer(payload) || payload.length !== 5) {
       client.emit('error', 'Invalid packet structure. Expected 5-byte buffer via binary message.');
